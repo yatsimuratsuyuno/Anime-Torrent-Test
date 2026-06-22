@@ -20,22 +20,23 @@ export default new class Sukebei {
       if (!res.ok) return []
 
       const data = await res.json()
-      if (!data?.torrents || !Array.isArray(data.torrents)) return []
+      
+      // Cek apakah data.torrents ada dan merupakan array
+      if (!data || !data.torrents || !Array.isArray(data.torrents)) {
+        return []
+      }
 
       return this.map(data.torrents).filter(item => {
         const title = item.title.toLowerCase()
 
-        // Filter exclusions
         if (exclusions.some(e => title.includes(e.toLowerCase()))) {
           return false
         }
 
-        // Filter resolusi
         if (resolution && !title.includes(resolution + 'p')) {
           return false
         }
 
-        // Filter episode
         if (episode) {
           const epNum = String(episode).padStart(2, '0')
           const patterns = [
@@ -45,8 +46,6 @@ export default new class Sukebei {
           ]
           
           if (!patterns.some(p => p.test(title))) return false
-          
-          // Exclude batch
           if (/(?:batch|complete|e\d{2,3}[-_]\d{2,3})/i.test(title)) return false
         }
 
@@ -61,11 +60,8 @@ export default new class Sukebei {
   async batch(query) {
     if (!query?.titles?.length) return []
     
-    const batchQuery = { ...query }
-    delete batchQuery.episode
-    
     try {
-      const title = batchQuery.titles[0].replace(/[^\w\s-]/g, ' ').trim()
+      const title = query.titles[0].replace(/[^\w\s-]/g, ' ').trim()
       const params = new URLSearchParams({
         q: title,
         s: 'size',
@@ -79,7 +75,7 @@ export default new class Sukebei {
       if (!res.ok) return []
 
       const data = await res.json()
-      if (!data?.torrents) return []
+      if (!data?.torrents || !Array.isArray(data.torrents)) return []
 
       return this.map(data.torrents).filter(item => {
         const title = item.title.toLowerCase()
@@ -106,14 +102,18 @@ export default new class Sukebei {
   }
 
   map(torrents) {
+    // Safety check
+    if (!torrents || !Array.isArray(torrents)) return []
+    
     return torrents
       .filter(item => {
+        if (!item) return false
         if (!item.hash && !item.magnet) return false
         if (!item.name || item.name.trim() === '') return false
         return true
       })
       .map(item => {
-        const title = item.name || ''
+        const title = item.name || 'Unknown'
         const isBatch = /(?:batch|complete|e\d{2,3}[-_]\d{2,3}|collection)/i.test(title)
 
         return {
@@ -124,7 +124,7 @@ export default new class Sukebei {
           leechers: this.safeInt(item.leechers),
           downloads: this.safeInt(item.downloads),
           size: this.safeInt(item.filesize),
-          date: new Date(item.timestamp * 1000 || Date.now()),
+          date: new Date((item.timestamp || 0) * 1000),
           type: isBatch ? 'batch' : undefined,
           accuracy: 'medium'
         }
@@ -150,46 +150,36 @@ export default new class Sukebei {
 
       const data = await res.json()
 
-      if (!data?.torrents || !Array.isArray(data.torrents)) {
-        throw new Error('Response bukan format API Nyaa. API mungkin berubah.')
+      if (!data || !data.torrents || !Array.isArray(data.torrents)) {
+        throw new Error('Response bukan format API yang diharapkan')
       }
 
       if (data.torrents.length === 0) {
-        throw new Error('Tidak ada hasil. API mungkin bermasalah.')
+        throw new Error('Tidak ada hasil dari query test')
       }
 
       const item = data.torrents[0]
       if (!item.name) {
-        throw new Error('Struktur data tidak sesuai (name tidak ditemukan).')
+        throw new Error('Struktur data tidak memiliki field name')
       }
 
-      const result = this.map([item])
-      if (result.length === 0) {
-        throw new Error('Gagal memproses data.')
+      // Test map function
+      const result = this.map(data.torrents)
+      if (!Array.isArray(result)) {
+        throw new Error('Function map tidak mengembalikan array')
       }
 
       return true
     } catch (error) {
       if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-        throw new Error(
-          'Sukebei API timeout.\n' +
-          'Server lambat atau tidak merespons.\n' +
-          'Coba lagi nanti.'
-        )
+        throw new Error('Sukebei API timeout. Server tidak merespons.')
       }
 
       if (error.message.includes('fetch') || error.message.includes('NetworkError')) {
-        throw new Error(
-          'Tidak dapat terhubung ke Sukebei.\n\n' +
-          'Kemungkinan:\n' +
-          '• Situs diblokir ISP\n' +
-          '• Server down\n' +
-          '• Internet bermasalah\n\n' +
-          'Gunakan VPN untuk mengakses Sukebei.'
-        )
+        throw new Error('Tidak dapat terhubung ke Sukebei. Gunakan VPN.')
       }
 
-      throw new Error(`Sukebei test gagal: ${error.message}`)
+      throw new Error(`Sukebei error: ${error.message}`)
     }
   }
 }()
