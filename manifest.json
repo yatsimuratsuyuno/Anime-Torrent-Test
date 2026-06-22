@@ -3,15 +3,29 @@
     "manifestVersion": 2,
     "deprecated": false,
     "name": "Sukebei Nyaa",
-    "id": "sukebei_nyaa_yatsimuratsuyuno",
+    "id": "sukebeinyaa",
     "version": "1.0.0",
     "type": "torrent",
     "accuracy": "low",
     "updatePeers": false,
-    "media": "both",
-    "languages": ["ALL"],
-    "url": "aHR0cHM6Ly9zdWtlYmVpLm55YWEuc2k=",
+    "ratio": 0,
+    "media": "sub",
+    "languages": ["JP"],
+    "url": "aHR0cHM6Ly9zdWtlYmVpLm55YWEuc2kv",
     "icon": "https://sukebei.nyaa.si/static/favicon.png",
-    "code": "https://raw.githubusercontent.com/yatsimuratsuyuno/Anime-Torrent-Test/main/extension.js"
+    "update": "https://raw.githubusercontent.com/yatsimuratsuyuno/Anime-Torrent-Test/main/manifest.json",
+    "code": "https://raw.githubusercontent.com/yatsimuratsuyuno/Anime-Torrent-Test/main/sukebei.js",
+    "options": {
+      "filter_trusted": {
+        "type": "boolean",
+        "description": "Only show torrents from trusted uploaders",
+        "default": false
+      },
+      "exclude_batched": {
+        "type": "boolean",
+        "description": "Exclude batch releases",
+        "default": false
+      }
+    }
   }
 ]
