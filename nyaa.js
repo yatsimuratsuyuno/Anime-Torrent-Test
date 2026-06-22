@@ -1,151 +1,220 @@
-const BASE_URL = "https://nyaa.si";
+/**
+ * Nyaa.si & Sukebei.nyaa.si — Unified Extension for Hayase
+ * Repository: yatsimuratsuyuno/Anime-Torrent-Test
+ * Version: 1.0.0
+ */
 
-function parseSizeToBytes(sizeStr) {
-  if (!sizeStr) return 0;
-  const units = {
-    'B': 1,
-    'KiB': 1024,
-    'MiB': 1048576,
-    'GiB': 1073741824,
-    'TiB': 1099511627776
-  };
-  const match = sizeStr.match(/([\d.]+)\s*(B|KiB|MiB|GiB|TiB)/);
-  if (match) {
-    return parseFloat(match[1]) * units[match[2]];
+// ─── Constants ───────────────────────────────────
+const SIZE_REGEX = /(\d+(?:\.\d+)?)\s*(GiB|MiB|KiB|GB|MB|KB|B)/i;
+const HASH_REGEX = /btih:([a-fA-F0-9]{40})/;
+
+// ─── Utility Functions ───────────────────────────
+function parseSize(str) {
+  if (!str) return 0;
+  const m = str.match(SIZE_REGEX);
+  if (!m) return 0;
+  let v = parseFloat(m[1]);
+  switch ((m[2] || '').toUpperCase()) {
+    case 'GIB': case 'GB': v *= 1073741824; break;
+    case 'MIB': case 'MB': v *= 1048576; break;
+    case 'KIB': case 'KB': v *= 1024; break;
   }
-  return 0;
+  return Math.round(v);
 }
 
-function parseDate(dateStr) {
-  if (!dateStr) return new Date();
-  const match = dateStr.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
-  if (match) {
-    return new Date(match[1], match[2] - 1, match[3], match[4], match[5]);
-  }
-  return new Date();
+function parseNum(str) {
+  return parseInt(str, 10) || 0;
 }
 
-function parseRow(row) {
-  try {
-    const cells = row.querySelectorAll("td");
-    if (cells.length < 8) return null;
-
-    const titleCell = cells[1];
-    const links = cells[2].querySelectorAll("a");
-    const sizeStr = cells[3].textContent.trim();
-    const dateStr = cells[4].textContent.trim();
-    const seeders = parseInt(cells[5].textContent.trim()) || 0;
-    const leechers = parseInt(cells[6].textContent.trim()) || 0;
-    const downloads = parseInt(cells[7].textContent.trim()) || 0;
-
-    const titleLinks = titleCell.querySelectorAll("a");
-    let title = "";
-    if (titleLinks.length > 0) {
-      title = titleLinks[titleLinks.length - 1].textContent.trim();
-    }
-
-    let link = "";
-    let hash = "";
-
-    for (const a of links) {
-      const href = a.getAttribute("href") || "";
-      if (href.includes("magnet:")) {
-        link = href;
-        const hashMatch = href.match(/btih:([a-fA-F0-9]{40})/);
-        if (hashMatch) hash = hashMatch[1].toLowerCase();
-      } else if (href.includes(".torrent") && !link) {
-        link = href.startsWith("http") ? href : BASE_URL + href;
-      }
-    }
-
-    if (!title || !link) return null;
-
-    return {
-      title: title,
-      link: link,
-      seeders: seeders,
-      leechers: leechers,
-      downloads: downloads,
-      accuracy: "low",
-      hash: hash,
-      size: parseSizeToBytes(sizeStr),
-      date: parseDate(dateStr)
-    };
-  } catch (e) {
-    return null;
-  }
+function extractHash(link) {
+  const m = link.match(HASH_REGEX);
+  return m ? m[1].toLowerCase() : '';
 }
 
-async function performSearch(query, options = {}) {
-  const titles = query.titles || [];
-  const episode = query.episode;
-  const exclusions = query.exclusions || [];
-  const fetchFunc = query.fetch || fetch;
-  
-  let mainTitle = titles[0] || "";
-  for (const t of titles) {
-    if (t && /^[a-zA-Z0-9\s]+$/.test(t) && t.length <= mainTitle.length) {
-      mainTitle = t;
-    }
-  }
+function detectBatch(title) {
+  return /\b(batch|complete|season\s*\d+|1-?\d+|s\d{2})\b/i.test(title)
+    ? 'batch'
+    : undefined;
+}
 
-  let searchQuery = mainTitle;
-  if (episode) {
-    searchQuery += " " + episode.toString().padStart(2, "0");
-  }
-  if (query.resolution) {
-    searchQuery += " " + query.resolution + "p";
-  }
-  for (const e of exclusions) {
-    searchQuery += " -" + e;
-  }
-  if (options.exclude_batched) {
-    searchQuery += " -batch -complete";
-  }
-
-  const params = new URLSearchParams({
-    f: options.filter_trusted ? "2" : "0",
-    c: "0_0",
-    q: searchQuery,
-    s: "seeders",
-    o: "desc"
-  });
-
-  const response = await fetchFunc(BASE_URL + "/?" + params.toString());
-  if (!response.ok) {
-    throw new Error("Failed to connect to Nyaa.si");
-  }
-
-  const html = await response.text();
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-  const rows = doc.querySelectorAll("table.torrent-list tbody tr, table.table tbody tr");
-
+// ─── RSS Parser ──────────────────────────────────
+function parseRSS(xml) {
   const results = [];
-  for (const row of rows) {
-    const result = parseRow(row);
-    if (result) results.push(result);
-  }
+  const re = /<item>([\s\S]*?)<\/item>/gi;
+  let m;
+  while ((m = re.exec(xml))) {
+    const item = m[1];
+    const title = (item.match(/<title>(.*?)<\/title>/i) || [])[1]?.trim() || '';
+    const link = (item.match(/<link>(.*?)<\/link>/i) || [])[1] || '';
+    const hash = (
+      (item.match(/<nyaa:infohash>([a-fA-F0-9]{40})<\/nyaa:infohash>/i) || [])[1] ||
+      extractHash(link)
+    ).toLowerCase();
+    const magnet = `magnet:?xt=urn:btih:${hash}`;
 
+    results.push({
+      title,
+      link: magnet,
+      seeders: parseNum((item.match(/<nyaa:seeders>(\d+)<\/nyaa:seeders>/i) || [])[1]),
+      leechers: parseNum((item.match(/<nyaa:leechers>(\d+)<\/nyaa:leechers>/i) || [])[1]),
+      downloads: parseNum((item.match(/<nyaa:downloads>(\d+)<\/nyaa:downloads>/i) || [])[1]),
+      accuracy: 'medium',
+      hash,
+      size: parseSize((item.match(/<nyaa:size>(.*?)<\/nyaa:size>/i) || [])[1]),
+      date: new Date(((item.match(/<pubDate>(.*?)<\/pubDate>/i) || [])[1]) || Date.now()),
+      type: detectBatch(title)
+    });
+  }
   return results;
 }
 
+// ─── HTML Parser (Fallback) ──────────────────────
+function parseHTML(html) {
+  const results = [];
+  const re = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const row = m[1];
+    const magnet = (row.match(/href="(magnet:\?xt=urn:btih:[^"]+)"/i) || [])[1];
+    if (!magnet) continue;
+
+    const title =
+      (row.match(/title="([^"]*?)"/i) || [])[1] ||
+      (row.match(/colspan="2"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/i) || [])[1]?.trim() ||
+      '';
+    const hash = extractHash(magnet);
+    const seeds = parseNum((row.match(/color:\s*green[^>]*>\s*(\d+)/i) || [])[1]);
+    const leech = parseNum((row.match(/color:\s*red[^>]*>\s*(\d+)/i) || [])[1]);
+    const size = parseSize((row.match(/>\s*([\d.]+ (?:GiB|MiB|KiB|GB|MB|KB|B))\s*</i) || [])[1]);
+    const dateStr = (row.match(/>\s*(\d{4}-\d{2}-\d{2})\s*</i) || [])[1];
+
+    results.push({
+      title,
+      link: magnet,
+      seeders: seeds,
+      leechers: leech,
+      downloads: 0,
+      accuracy: 'medium',
+      hash,
+      size,
+      date: dateStr ? new Date(dateStr) : new Date(),
+      type: detectBatch(title)
+    });
+  }
+  return results;
+}
+
+// ─── Filter Exclusions ───────────────────────────
+function applyExclusions(results, exclusions) {
+  if (!exclusions || !exclusions.length) return results;
+  return results.filter(r =>
+    !exclusions.some(e => r.title.toLowerCase().includes(e.toLowerCase()))
+  );
+}
+
+// ─── Build Search Query ──────────────────────────
+function buildSearchQuery(titles, episode) {
+  let q = (titles?.[0] || '').trim();
+  if (episode) q += ` ${String(episode).padStart(2, '0')}`;
+  return q;
+}
+
+// ══════════════════════════════════════════════════
+//  MAIN EXTENSION EXPORT
+// ══════════════════════════════════════════════════
 export default {
+
+  // ── Health Check ─────────────────────────────
   async test() {
-    const resp = await fetch(BASE_URL);
-    if (!resp.ok) throw new Error("Cannot reach Nyaa.si");
-    return true;
+    const domains = ['nyaa.si', 'sukebei.nyaa.si'];
+    for (const domain of domains) {
+      try {
+        const res = await fetch(`https://${domain}/`, {
+          method: 'HEAD',
+          signal: AbortSignal.timeout(5000)
+        });
+        if (res.ok) return true;
+      } catch (_) { /* lanjut domain berikutnya */ }
+    }
+    throw new Error(
+      'Tidak dapat terhubung ke Nyaa.si maupun Sukebei. ' +
+      'Periksa koneksi internet atau firewall Anda.'
+    );
   },
 
-  async single(query, options = {}) {
-    return performSearch(query, options);
+  // ── Single Episode Search ────────────────────
+  async single(query, options) {
+    return this._search(query, options);
   },
 
-  async batch(query, options = {}) {
-    return performSearch(query, options);
+  // ── Batch Search ─────────────────────────────
+  async batch(query, options) {
+    return this._search(query, options);
   },
 
-  async movie(query, options = {}) {
-    return performSearch(query, options);
+  // ── Movie Search ─────────────────────────────
+  async movie(query, options) {
+    return this._search(query, options);
+  },
+
+  // ── Core Search Logic ────────────────────────
+  async _search(query, options = {}) {
+    const { titles, episode, exclusions = [], fetch } = query;
+    const limit = Math.min(options.limit || 50, 100);
+    const filter = options.filter || '0';
+    const category = options.category || '0_0';
+
+    const searchQuery = buildSearchQuery(titles, episode);
+    if (!searchQuery) {
+      throw new Error('Tidak ada judul untuk dicari. Masukkan judul anime terlebih dahulu.');
+    }
+
+    // Domain prioritas: nyaa.si dulu, baru sukebei
+    const domains = ['nyaa.si', 'sukebei.nyaa.si'];
+    let lastError = null;
+
+    for (const domain of domains) {
+      try {
+        const baseUrl = `https://${domain}`;
+        const rssUrl = `${baseUrl}/?page=rss&f=${filter}&c=${category}&q=${encodeURIComponent(searchQuery)}`;
+
+        const res = await fetch(rssUrl);
+        if (!res.ok) {
+          lastError = `Server ${domain} mengembalikan status ${res.status}`;
+          continue;
+        }
+
+        const text = await res.text();
+
+        // Deteksi apakah response RSS atau HTML
+        let results;
+        if (text.includes('<item>')) {
+          results = parseRSS(text);
+        } else if (text.includes('table-bordered')) {
+          results = parseHTML(text);
+        } else {
+          // Tidak ada hasil atau format tidak dikenal
+          continue;
+        }
+
+        if (!results.length) continue;
+
+        // Apply exclusions filter
+        results = applyExclusions(results, exclusions);
+
+        // Sort by seeders (descending)
+        results.sort((a, b) => b.seeders - a.seeders);
+
+        // Limit results
+        return results.slice(0, limit);
+
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    throw new Error(
+      `Pencarian gagal di kedua domain. ${lastError?.message || 'Coba lagi nanti.'}`
+    );
   }
 };
