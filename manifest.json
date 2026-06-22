@@ -2,29 +2,16 @@
   {
     "manifestVersion": 2,
     "deprecated": false,
-    "name": "Sukebei Nyaa (18+)",
-    "id": "sukebeinyaa",
+    "name": "Sukebei Nyaa",
+    "id": "sukebei_nyaa_yatsimuratsuyuno",
     "version": "1.0.0",
     "type": "torrent",
     "accuracy": "low",
     "updatePeers": false,
-    "ratio": 0,
-    "media": "sub",
-    "languages": ["JP"],
-    "url": "aHR0cHM6Ly9zdWtlYmVpLm55YWEuc2kv",
+    "media": "both",
+    "languages": ["ALL"],
+    "url": "aHR0cHM6Ly9zdWtlYmVpLm55YWEuc2k=",
     "icon": "https://sukebei.nyaa.si/static/favicon.png",
-    "code": "https://raw.githubusercontent.com/yatsimuratsuyuno/Anime-Torrent-Test/main/sukebei.js",
-    "options": {
-      "filter_trusted": {
-        "type": "boolean",
-        "description": "Hanya tampilkan torrent dari pengunggah terpercaya (trusted)",
-        "default": false
-      },
-      "exclude_batched": {
-        "type": "boolean",
-        "description": "Kecualikan rilis batch",
-        "default": false
-      }
-    }
+    "code": "https://raw.githubusercontent.com/yatsimuratsuyuno/Anime-Torrent-Test/main/extension.js"
   }
 ]
